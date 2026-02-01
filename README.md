@@ -6,10 +6,11 @@ A knowledge graph memory system for the OpenClaw agent (Sofía), inspired by [Ze
 
 - 🧠 **Entity Extraction**: Automatically extracts entities and relationships from conversations using OpenAI
 - 🔗 **Knowledge Graph**: Stores information as entities, relationships, and episodes in PostgreSQL
-- 🔍 **Semantic Search**: Retrieves relevant context before generating responses
-- 📝 **Conversation Capture**: Automatically stores conversation history
+- 🔍 **Semantic Search**: Full vector similarity search with pgvector for semantic context retrieval
+- 📝 **Conversation Capture**: Automatically stores conversation history with embeddings
 - 🛠️ **Manual Fact Entry**: Add facts manually via the `graphiti_add_fact` tool
 - 💰 **Cost Tracking**: Built-in tracking of API usage costs
+- 🔢 **Vector Search**: Cosine similarity search for finding semantically similar content
 
 ## Architecture
 
@@ -36,6 +37,36 @@ cd /Users/aitorortega/clawd/skills/graphiti-memory
 npm install
 npm run build
 ```
+
+### 1a. pgvector Extension (Required for Semantic Search)
+
+Graphiti Memory uses **pgvector** for efficient vector similarity search. Install it for your PostgreSQL version:
+
+**For Homebrew PostgreSQL:**
+```bash
+# Install pgvector (compiles from source for your PostgreSQL version)
+brew install pgvector
+
+# Or compile manually for PostgreSQL 15:
+cd /tmp
+git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
+cd pgvector
+export PG_CONFIG=/opt/homebrew/opt/postgresql@15/bin/pg_config
+make
+make install
+```
+
+**Enable in database:**
+```bash
+psql -d secondbrain -c "CREATE EXTENSION IF NOT EXISTS vector;"
+```
+
+**Verify installation:**
+```bash
+psql -d secondbrain -c "SELECT '[1,2,3]'::vector <-> '[4,5,6]'::vector as distance;"
+```
+
+> **Note:** pgvector is backward compatible. If not installed, the system falls back to JSONB storage and text search.
 
 ### 2. Database Setup
 
@@ -197,10 +228,17 @@ CREATE TABLE graphiti_entities (
   name TEXT NOT NULL UNIQUE,
   type TEXT NOT NULL,  -- Person, Organization, Concept, etc.
   properties JSONB DEFAULT '{}',
-  embedding VECTOR(1536),  -- For semantic search (requires pgvector)
+  embedding JSONB,  -- Fallback JSONB storage
+  embedding_vector VECTOR(1536),  -- pgvector column for similarity search
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Vector similarity index (cosine distance)
+CREATE INDEX idx_entities_embedding_cosine 
+ON graphiti_entities 
+USING ivfflat (embedding_vector vector_cosine_ops) 
+WITH (lists = 100);
 ```
 
 ### Relationships
@@ -224,12 +262,19 @@ CREATE TABLE graphiti_relationships (
 CREATE TABLE graphiti_episodes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   content TEXT NOT NULL,  -- Conversation text
-  embedding VECTOR(1536),  -- For semantic search
+  embedding JSONB,  -- Fallback JSONB storage
+  embedding_vector VECTOR(1536),  -- pgvector column for similarity search
   entities UUID[] DEFAULT '{}',  -- Referenced entity IDs
   metadata JSONB DEFAULT '{}',
   timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Vector similarity index (cosine distance)
+CREATE INDEX idx_episodes_embedding_cosine 
+ON graphiti_episodes 
+USING ivfflat (embedding_vector vector_cosine_ops) 
+WITH (lists = 100);
 ```
 
 ## Testing
@@ -289,10 +334,38 @@ Optional configuration via environment variables:
 
 ## Performance Considerations
 
-- **Latency**: Context retrieval adds ~50-200ms to response time
-- **Database**: Uses indexed queries for fast lookups
-- **Embeddings**: Optional (falls back to text search if pgvector unavailable)
+- **Latency**: Context retrieval adds ~50-200ms to response time (with pgvector: ~10-30ms for vector search)
+- **Database**: Uses indexed queries and IVFFlat vector indexes for fast similarity search
+- **Embeddings**: Stored as both JSONB (backward compatibility) and VECTOR (for search)
+- **Vector Search**: Cosine similarity via `embedding_vector <=> query` with IVFFlat index
 - **Caching**: Consider caching frequent queries in production
+
+### Vector Search API
+
+The client provides several vector-based search methods:
+
+```typescript
+// Semantic search for entities
+const entities = await client.semanticSearchEntities(
+  embedding,      // number[] - Query embedding
+  5,             // limit - Max results
+  0.7            // threshold - Optional similarity threshold
+);
+
+// Semantic search for episodes
+const episodes = await client.semanticSearchEpisodes(
+  embedding,
+  5
+);
+
+// Hybrid search (text + semantic)
+const results = await client.hybridSearchEpisodes(
+  'query text',           // Text for text search
+  queryEmbedding,         // Embedding for semantic search
+  5,                      // limit
+  0.7                     // semanticWeight (0-1)
+);
+```
 
 ## Troubleshooting
 
@@ -313,13 +386,15 @@ Optional configuration via environment variables:
 
 ## Future Improvements
 
-- [ ] pgvector support for semantic similarity search
+- [x] ✅ pgvector support for semantic similarity search
 - [ ] Graph traversal for multi-hop queries
 - [ ] Temporal reasoning (when facts were valid)
 - [ ] Community detection for entity clustering
 - [ ] Integration with LanceDB for hybrid search
 - [ ] Memory pruning and consolidation
 - [ ] User-specific memory namespaces
+- [ ] HNSW index support for faster approximate search
+- [ ] Vector quantization for memory efficiency
 
 ## License
 
