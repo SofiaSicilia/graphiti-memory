@@ -1,0 +1,90 @@
+diff --git a/agent/index.ts b/agent/index.ts
+index 123456..789abc 100644
+--- a/agent/index.ts
++++ b/agent/index.ts
+@@ -5,6 +5,12 @@ import { createOpenAI } from '@ai-sdk/openai';
+ import { generateText, tool } from 'ai';
+ import { z } from 'zod';
+ 
++// Graphiti Memory Integration
++import {
++  initializeGraphitiIntegration,
++  onBeforeResponse,
++  onAfterResponse,
++  shutdownGraphitiIntegration,
++} from '../skills/graphiti-memory/openclaw-integration.js';
++
+ export class OpenClawAgent {
+   private openai: ReturnType<typeof createOpenAI>;
+   private tools: any;
+@@ -15,6 +21,9 @@ export class OpenClawAgent {
+       apiKey: process.env.OPENAI_API_KEY,
+     });
+     this.setupTools();
++    
++    // Initialize Graphiti Memory on startup
++    this.initializeMemory();
+   }
+ 
+   private setupTools() {
+@@ -33,6 +42,24 @@ export class OpenClawAgent {
+     };
+   }
+ 
++  private async initializeMemory() {
++    try {
++      await initializeGraphitiIntegration({
++        // Uses env vars by default:
++        // - GRAPHITI_DB_URL or DATABASE_URL
++        // - OPENAI_API_KEY
++        // Optional overrides:
++        // databaseUrl: 'postgresql://...',
++        // maxContextResults: 10,
++        // entityExtractionModel: 'gpt-4o-mini',
++      });
++    } catch (error) {
++      console.error('[Agent] Failed to initialize memory:', error);
++      // Continue without memory - don't crash the agent
++    }
++  }
++
+   async processMessage(message: {
+     id: string;
+     content: string;
+@@ -40,11 +67,20 @@ export class OpenClawAgent {
+     channelId: string;
+     threadId?: string;
+   }) {
++    // BEFORE: Get context from memory
++    const memoryContext = await onBeforeResponse(message);
++    
+     const systemPrompt = `You are Sofía, a helpful assistant.
+ You have access to tools and can remember information across conversations.
++
++${memoryContext}
++
++When you recall information from memory, use it naturally in your responses.
+ `;
+ 
+-    const { text } = await generateText({
++    const result = await generateText({
+       model: this.openai('gpt-4o'),
+       system: systemPrompt,
+       messages: [
+@@ -54,6 +90,15 @@ export class OpenClawAgent {
+       tools: this.tools,
+     });
+ 
+-    return { content: text };
++    const response = { content: result.text };
++
++    // AFTER: Store conversation in memory
++    await onAfterResponse(message, response);
++
++    return response;
++  }
++
++  async shutdown() {
++    await shutdownGraphitiIntegration();
+   }
+ }
