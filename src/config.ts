@@ -37,7 +37,7 @@ export const config = {
   // Settings
   maxContextResults: parseInt(process.env.GRAPHITI_MAX_RESULTS || '10', 10),
   entityExtractionModel: process.env.GRAPHITI_MODEL || 'gpt-4o-mini',
-  embeddingModel: process.env.GRAPHITI_EMBEDDING_MODEL || 'text-embedding-3-small',
+  embeddingModel: process.env.GRAPHITI_EMBEDDING_MODEL || 'text-embedding-3-large',
 
   // Feature flags
   enableEntityExtraction: fileConfig.enableEntityExtraction !== false,
