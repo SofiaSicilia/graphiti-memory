@@ -1,0 +1,26 @@
+{
+  "name": "@sofia/graphiti-memory",
+  "version": "1.0.0",
+  "description": "Graphiti-inspired knowledge graph memory for OpenClaw agent",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "node --test dist/**/*.test.js",
+    "lint": "eslint src/**/*.ts"
+  },
+  "dependencies": {
+    "@edgemaker/core": "^1.4.1",
+    "@types/pg": "^8.16.0",
+    "dotenv": "^16.4.5",
+    "openai": "^4.73.0",
+    "pg": "^8.18.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
